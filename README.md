@@ -4,7 +4,7 @@
 
 Learn about stateful auth tokens by implementing an authentication process.
 
-## TODOs
+## TODIDS
 
 ### Setup Endpoints
 
