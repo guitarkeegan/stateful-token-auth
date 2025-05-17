@@ -7,7 +7,14 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"go.etcd.io/bbolt"
+	"golang.org/x/crypto/bcrypt"
 )
+
+type SuccessMsg struct {
+	Msg string `json:"msg"`
+}
 
 func (app *application) handleIndex(w http.ResponseWriter, r *http.Request) {
 
@@ -26,10 +33,6 @@ func (app *application) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 func (app *application) handleCreate(w http.ResponseWriter, r *http.Request) {
 
-	type SuccessMsg struct {
-		Msg string `json:"msg"`
-	}
-
 	type Creds struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
@@ -40,8 +43,36 @@ func (app *application) handleCreate(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		app.logger.Error("handleCreate", "error", err)
 	}
+	if cred.Password == "" || cred.Email == "" {
+		http.Error(w, "no good", http.StatusUnauthorized)
+		return
+	}
 
 	app.logger.Info("Create new user request", "email", cred.Email, "password", "REDACTED")
+
+	// TODO: create new user with email and hash
+	hash, err := bcrypt.GenerateFromPassword([]byte(cred.Password), 10)
+	if err != nil {
+		app.logger.Errorf("handleCreate: %q", err)
+		http.Error(w, "Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	err = app.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte("users"))
+		err := b.Put([]byte(cred.Email), hash)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		app.logger.Errorf("handleCreate: %q", err)
+		http.Error(w, "Server Error", http.StatusInternalServerError)
+	}
+
+	// setup session
+	app.sessionManager.Put(r.Context(), "authenticated", true)
 
 	sm := SuccessMsg{Msg: "New user created."}
 	err = app.sendJSON(w, http.StatusCreated, sm)
@@ -55,7 +86,14 @@ func (app *application) handleCreate(w http.ResponseWriter, r *http.Request) {
 func (app *application) handleSignIn(w http.ResponseWriter, r *http.Request) {
 }
 func (app *application) handleSignout(w http.ResponseWriter, r *http.Request) {}
-func (app *application) handleSecret(w http.ResponseWriter, r *http.Request)  {}
+func (app *application) handleSecret(w http.ResponseWriter, r *http.Request) {
+
+	msg := SuccessMsg{
+		Msg: "Here are the secrets!",
+	}
+
+	app.sendJSON(w, http.StatusOK, msg)
+}
 
 func (app *application) sendJSON(w http.ResponseWriter, statusCode int, data any) error {
 	env := map[string]any{
